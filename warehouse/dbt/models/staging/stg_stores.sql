@@ -1,0 +1,1 @@
+-- Staging stores model placeholder.

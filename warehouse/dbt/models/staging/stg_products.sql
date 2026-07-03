@@ -1,0 +1,1 @@
+-- Staging products model placeholder.

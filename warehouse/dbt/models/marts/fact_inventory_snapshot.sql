@@ -1,0 +1,1 @@
+-- Inventory snapshot fact model placeholder.

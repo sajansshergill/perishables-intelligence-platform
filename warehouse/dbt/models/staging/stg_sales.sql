@@ -1,0 +1,1 @@
+-- Staging sales model placeholder.

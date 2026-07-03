@@ -1,0 +1,1 @@
+-- Shelf-life dimension model placeholder.

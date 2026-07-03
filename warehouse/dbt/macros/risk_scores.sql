@@ -1,0 +1,1 @@
+-- Risk score macro placeholder.

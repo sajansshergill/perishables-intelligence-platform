@@ -67,151 +67,208 @@ The gap between *what's physically on the shelf right now* and *what's about to 
         Orchestration: Airflow  ·  Transforms: dbt  ·  Quality gate: Great Expectations  ·  Packaged: Docker
 ```
 
-**Design choices tied to the problem:**
-
-| Decision | Why |
-|---|---|
-| **Kinesis** as the primary stream | Native to the AWS/Amazon stack; MSK/Kafka noted as a drop-in where an org already runs it. |
-| **Bronze / silver / gold** on S3 | Cheap, replayable landing; conforming happens downstream, not at ingest. |
-| **Redshift dimensional model** | Analytic deliverables need conformed dimensions, not raw events. Dist/sort keys tune cost + performance. |
-| **dbt for gold transforms** | Version-controlled, testable business logic — the risk scores are auditable, not buried in a script. |
-| **Firehose buffering** | Batches small events into efficient S3 objects → lower cost, fewer small-file problems. |
-
----
-
-## Data model
-
-Star schema in Redshift. Facts are grain-explicit; a slowly-changing dimension tracks shelf-life reference data as it's revised.
-
-```
-dim_store ───┐
-dim_product ─┼──< fact_sales               (grain: store × product × transaction time)
-dim_supplier ┤
-dim_date ────┴──< fact_inventory_snapshot  (grain: store × product × snapshot time)
-
-dim_product_shelf_life  (SCD Type 2 — shelf-life windows change over time)
-```
-
-**Gold deliverable**
-
-```sql
--- gold.perishables_risk (one row per store × SKU × day)
-store_id, product_id,
-on_hand_qty, days_remaining_shelf_life, trailing_7d_sell_through,
-projected_demand, replenishment_lead_days,
-spoilage_risk_score,   -- 0..1, higher = more likely to spoil
-stockout_risk_score,   -- 0..1, higher = more likely to stock out
-risk_flag,             -- {SPOILAGE, STOCKOUT, OK}
-computed_at
-```
-
----
-
-## Tech stack
-
-| Layer | Tooling |
-|---|---|
-| Streaming ingest | Amazon Kinesis Data Streams, Lambda, Kinesis Firehose |
-| Batch ingest / ETL | AWS Glue (PySpark), S3 |
-| Warehouse | Amazon Redshift |
-| Transforms | dbt |
-| Orchestration | Apache Airflow (Step Functions noted as AWS-native alternative) |
-| Data quality | Great Expectations (CI-gated) |
-| Serving | QuickSight / Streamlit |
-| Packaging & CI | Docker, GitHub Actions |
-| Local emulation | LocalStack (Kinesis/S3/Lambda), Postgres-as-Redshift for local dev |
-
 ---
 
 ## Project structure
 
+Legend:  ✅ implemented and tested  ·  🚧 scaffolded next
+
 ```
 perishables-intelligence-platform/
-├── infra/                    # IaC — Kinesis, Firehose, Glue, Redshift, IAM roles
-│   └── terraform/
-├── ingestion/
-│   ├── stream/               # event producer (synthetic POS/inventory) + Lambda handler
-│   └── batch/                # Glue PySpark jobs for supplier/shelf-life drops
-├── warehouse/
-│   └── dbt/                  # staging → marts, incl. perishables_risk model + tests
-├── quality/
-│   └── great_expectations/   # expectation suites run as a CI gate
-├── orchestration/
-│   └── airflow/dags/         # batch load DAG + risk-scoring DAG
-├── serving/
-│   └── dashboard/            # Streamlit app over gold tables
+│
+├── README.md
+├── requirements.txt                         ✅ runtime + test deps
+├── .gitignore                               ✅ (generated data is reproducible, not committed)
+├── conftest.py                              ✅ puts the generator on the test path
+├── docker-compose.yml                       🚧 LocalStack + Airflow + warehouse for local runs
+│
 ├── data/
-│   └── generators/           # synthetic data generator (stores, SKUs, shelf-life)
+│   └── generators/
+│       ├── config.py                        ✅ category/shelf-life/store specs + ordering knobs
+│       ├── generate.py                      ✅ dimensions + FIFO inventory-aging simulation
+│       └── seed.py                          ✅ CLI entry point → parquet/csv + summary report
+│
+├── infra/
+│   └── terraform/
+│       ├── main.tf                          🚧 provider + backend
+│       ├── s3.tf                             🚧 lake buckets (bronze/silver/gold)
+│       ├── kinesis.tf                        🚧 data stream
+│       ├── firehose.tf                       🚧 delivery stream → S3
+│       ├── glue.tf                           🚧 batch ETL jobs + catalog
+│       ├── redshift.tf                       🚧 warehouse cluster
+│       ├── iam.tf                            🚧 least-privilege roles
+│       └── variables.tf                      🚧
+│
+├── ingestion/
+│   ├── stream/
+│   │   ├── producer.py                       🚧 emits synthetic POS/inventory events → Kinesis
+│   │   └── enrich_lambda.py                  🚧 Lambda: validate + enrich → Firehose
+│   └── batch/
+│       ├── glue_supplier_load.py             🚧 PySpark: supplier/warehouse drops → bronze
+│       └── glue_shelf_life_load.py           🚧 PySpark: shelf-life reference → bronze
+│
+├── warehouse/
+│   ├── ddl/
+│   │   └── redshift_schema.sql               🚧 raw DDL with dist/sort keys
+│   └── dbt/
+│       ├── dbt_project.yml                    🚧
+│       ├── profiles.yml                       🚧
+│       ├── models/
+│       │   ├── staging/
+│       │   │   ├── stg_sales.sql              🚧
+│       │   │   ├── stg_inventory_snapshot.sql 🚧
+│       │   │   ├── stg_stores.sql             🚧
+│       │   │   ├── stg_products.sql           🚧
+│       │   │   └── stg_shelf_life.sql         🚧
+│       │   ├── marts/
+│       │   │   ├── dim_store.sql              🚧
+│       │   │   ├── dim_product.sql            🚧
+│       │   │   ├── dim_shelf_life.sql         🚧 SCD Type 2
+│       │   │   ├── fact_sales.sql             🚧
+│       │   │   ├── fact_inventory_snapshot.sql 🚧
+│       │   │   └── perishables_risk.sql       🚧 ⭐ the gold deliverable
+│       │   └── schema.yml                     🚧 dbt tests (not-null, unique, ranges, relationships)
+│       └── macros/
+│           └── risk_scores.sql                🚧 reusable spoilage/stockout scoring logic
+│
+├── quality/
+│   └── great_expectations/
+│       ├── great_expectations.yml             🚧
+│       └── expectations/
+│           ├── inventory_snapshot_suite.json  🚧 freshness, no negative on-hand
+│           └── perishables_risk_suite.json    🚧 score bounds, flag domain
+│
+├── orchestration/
+│   └── airflow/
+│       └── dags/
+│           ├── batch_supplier_load.py         🚧 land → stage → test → promote
+│           └── perishables_risk_scoring.py    🚧 build gold + run quality gate
+│
+├── serving/
+│   └── dashboard/
+│       └── app.py                             🚧 Streamlit over gold.perishables_risk
+│
 ├── tests/
-├── docker-compose.yml        # LocalStack + Airflow + Postgres for local runs
-├── .github/workflows/ci.yml
-└── README.md
+│   └── test_generator.py                      ✅ 11 data-quality invariants (all passing)
+│
+└── .github/
+    └── workflows/
+        └── ci.yml                             🚧 pytest + dbt tests + Great Expectations gate
 ```
 
 ---
 
-## Quickstart (local)
+## Quickstart
 
-Runs the full pipeline against LocalStack + a Postgres-backed Redshift emulation — no AWS account required.
+### Runs today — generate the dataset
+
+The generator has no AWS dependency. It runs anywhere Python does.
 
 ```bash
-# 1. Clone and configure
-git clone https://github.com/sajansshergill/perishables-intelligence-platform.git
-cd perishables-intelligence-platform
-cp .env.example .env
+# 1. Install
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 
-# 2. Bring up LocalStack, Airflow, and the warehouse
-docker-compose up -d
+# 2. Generate (defaults: 20 stores × 500 SKUs × 30 days, seeded & reproducible)
+python data/generators/seed.py
 
-# 3. Seed synthetic reference + historical data
-python data/generators/seed.py --stores 20 --skus 500 --days 30
+#    …or size it yourself
+python data/generators/seed.py --stores 10 --skus 200 --days 30 --seed 42
 
-# 4. Start the streaming producer (simulated POS + inventory events)
-python ingestion/stream/producer.py --rate 50   # events/sec
-
-# 5. Trigger the batch load + risk-scoring DAGs
-airflow dags trigger batch_supplier_load
-airflow dags trigger perishables_risk_scoring
-
-# 6. Open the deliverable
-streamlit run serving/dashboard/app.py
+# 3. Run the data-quality invariants
+pytest -v
 ```
+
+Output lands in `data/generated/` — dimensions as CSV **and** Parquet (easy to eyeball), facts as Parquet:
+
+```
+data/generated/
+├── dims/   dim_store · dim_product · dim_supplier · dim_shelf_life · dim_date
+└── facts/  fact_sales · fact_inventory_snapshot
+```
+
+### Planned — the full local stack
+
+```bash
+docker-compose up -d                          # LocalStack (Kinesis/S3/Lambda) + Airflow + warehouse
+python ingestion/stream/producer.py --rate 50 # stream synthetic events
+airflow dags trigger perishables_risk_scoring # build gold + quality gate
+streamlit run serving/dashboard/app.py        # open the deliverable
+```
+
+---
+
+## The dataset (what the generator produces)
+
+A day-by-day simulation with **FIFO batch aging**: oldest units sell first, and any batch that outlives its shelf life is written off. Spoilage and stockouts *emerge* from ordering behaviour rather than being sprinkled in, so downstream models have a real signal to detect. Every store × SKU is assigned an ordering personality (balanced / over-orderer / under-orderer) via a self-correcting order-up-to policy.
+
+**Emitted tables**
+
+| Table | Grain | Notable columns |
+|---|---|---|
+| `dim_store` | store | region, format, `size_factor` |
+| `dim_product` | SKU | category, supplier, price/cost, `popularity` |
+| `dim_supplier` | supplier | `lead_time_days`, reliability |
+| `dim_shelf_life` | SKU × version | `shelf_life_days`, `effective_from/to`, `is_current` (SCD2) |
+| `dim_date` | day | calendar attributes |
+| `fact_sales` | store × SKU × day | `units_sold`, `revenue` (rows only when a sale occurred) |
+| `fact_inventory_snapshot` | store × SKU × day | `on_hand_qty`, `received_qty`, `oldest_batch_age_days`, `spoiled_qty`, `unmet_demand` |
+
+Business logic (`days_remaining_shelf_life`, the risk scores) is deliberately **not** computed here — that belongs in the warehouse layer.
+
+**Representative signal** at the default scale (300K inventory rows):
+
+```
+spoilage rate ............ ~8%   of units that reached the shelf
+                                 (concentrated in Seafood & Prepared Foods —
+                                  ~2-day shelf life; Dairy at 15 days barely spoils)
+zero on-hand ............. ~18%  of snapshots  (driven by the under-orderer cohort)
+```
+
+That category signature — most perishable categories spoil most — is asserted as a test, so the data can't silently drift into looking fake.
 
 ---
 
 ## Data quality & CI
 
-Every merge runs:
-
-- **dbt tests** — not-null, uniqueness, referential integrity, accepted-range checks on risk scores.
-- **Great Expectations suites** — freshness of inventory snapshots, no negative on-hand quantities, shelf-life windows within plausible bounds.
-- **Unit tests** — Lambda enrichment logic and the risk-score functions.
-
-A failing quality gate blocks the pipeline from promoting silver → gold, so bad data never reaches the deliverable.
+`tests/test_generator.py` — 11 invariants, currently the project's quality contract:
 
 ```
-[ci] dbt build ............... ✓  42 models, 118 tests passed
-[ci] great_expectations ...... ✓  6 suites passed
-[ci] pytest .................. ✓  31 passed
+test_all_expected_tables_present
+test_referential_integrity                 every fact key resolves to a dimension
+test_inventory_snapshot_is_dense           store × SKU × day, no gaps or dupes
+test_no_negative_quantities
+test_sales_only_recorded_when_something_sold
+test_revenue_matches_units_times_price
+test_stock_never_outlives_shelf_life       aging past shelf life must be written off
+test_dataset_contains_both_failure_modes   spoilage AND stockouts are present
+test_spoilage_concentrates_in_short_shelf_life   face-validity guard
+test_same_seed_is_deterministic            reproducible under a fixed seed
+test_scd2_has_current_record_per_product   exactly one current shelf-life row per SKU
 ```
+
+These graduate into the CI gate (`.github/workflows/ci.yml`): once dbt and Great Expectations land, a failing check blocks promotion silver → gold, so bad data never reaches the deliverable.
 
 ---
 
 ## Cost & performance notes
 
 - **Firehose buffering** (size/interval tuned) collapses many small stream records into efficient S3 objects.
-- **Redshift dist/sort keys** chosen on `store_id` / `product_id` / `computed_at` to keep the daily risk scan cheap.
-- **Partitioned S3** (`dt=YYYY-MM-DD`) so Glue and Redshift Spectrum prune to the day being processed.
-- **Incremental dbt models** on the fact tables — only new snapshots are reprocessed.
+- **Redshift dist/sort keys** on `store_id` / `product_id` / `computed_at` keep the daily risk scan cheap.
+- **Partitioned S3** (`dt=YYYY-MM-DD`) lets Glue and Redshift Spectrum prune to the day being processed.
+- **Incremental dbt models** on the fact tables reprocess only new snapshots.
 
 ---
 
 ## Roadmap
 
-- [ ] Swap the heuristic risk scores for a lightweight demand-forecast layer (feature store → model → back into gold).
-- [ ] Add supplier-level lead-time variability to sharpen the stockout signal.
-- [ ] Redshift Spectrum external tables to query bronze/silver directly for ad-hoc investigation.
-- [ ] Alerting: push `risk_flag = STOCKOUT` rows to a replenishment queue.
+- [x] Synthetic data generator with FIFO aging + data-quality tests
+- [ ] Redshift DDL + dbt staging/marts, incl. the `perishables_risk` gold model
+- [ ] Kinesis → Lambda → Firehose streaming path (LocalStack for local dev)
+- [ ] Glue batch loaders + Airflow orchestration
+- [ ] Great Expectations gate wired into CI
+- [ ] Streamlit dashboard over the gold table
+- [ ] Swap heuristic risk scores for a lightweight demand-forecast layer
 
 ---
 

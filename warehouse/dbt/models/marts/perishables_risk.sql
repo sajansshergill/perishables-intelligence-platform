@@ -1,0 +1,1 @@
+-- Perishables risk gold model placeholder.

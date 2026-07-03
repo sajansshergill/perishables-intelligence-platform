@@ -1,0 +1,1 @@
+-- Staging inventory snapshot model placeholder.

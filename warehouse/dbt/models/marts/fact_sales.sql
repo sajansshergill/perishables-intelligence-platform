@@ -1,0 +1,1 @@
+-- Sales fact model placeholder.
