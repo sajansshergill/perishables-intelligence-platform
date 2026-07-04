@@ -1,0 +1,1 @@
+-- Risk flag scoring consistency test placeholder.

@@ -80,7 +80,7 @@ perishables-intelligence-platform/
 ├── requirements.txt                         ✅ runtime + test deps
 ├── .gitignore                               ✅ (generated data is reproducible, not committed)
 ├── conftest.py                              ✅ puts the generator on the test path
-├── docker-compose.yml                       🚧 LocalStack + Airflow + warehouse for local runs
+├── docker-compose.yml                       ✅ LocalStack (Kinesis/Firehose/S3/Lambda)
 │
 ├── data/
 │   └── generators/
@@ -88,48 +88,58 @@ perishables-intelligence-platform/
 │       ├── generate.py                      ✅ dimensions + FIFO inventory-aging simulation
 │       └── seed.py                          ✅ CLI entry point → parquet/csv + summary report
 │
-├── infra/
-│   └── terraform/
-│       ├── main.tf                          🚧 provider + backend
-│       ├── s3.tf                             🚧 lake buckets (bronze/silver/gold)
-│       ├── kinesis.tf                        🚧 data stream
-│       ├── firehose.tf                       🚧 delivery stream → S3
-│       ├── glue.tf                           🚧 batch ETL jobs + catalog
-│       ├── redshift.tf                       🚧 warehouse cluster
-│       ├── iam.tf                            🚧 least-privilege roles
-│       └── variables.tf                      🚧
-│
 ├── ingestion/
 │   ├── stream/
-│   │   ├── producer.py                       🚧 emits synthetic POS/inventory events → Kinesis
-│   │   └── enrich_lambda.py                  🚧 Lambda: validate + enrich → Firehose
+│   │   ├── schema.py                         ✅ event contracts + validate/enrich (pure, tested)
+│   │   ├── aws.py                            ✅ endpoint-aware client factory (LocalStack ↔ AWS)
+│   │   ├── producer.py                       ✅ emits POS/inventory events → Kinesis/stdout/file
+│   │   └── enrich_lambda.py                  ✅ Kinesis→Lambda: validate, enrich, → Firehose
 │   └── batch/
 │       ├── glue_supplier_load.py             🚧 PySpark: supplier/warehouse drops → bronze
 │       └── glue_shelf_life_load.py           🚧 PySpark: shelf-life reference → bronze
 │
+├── scripts/
+│   └── localstack_setup.sh                   ✅ provisions stream/bucket/firehose/lambda locally
+│
+├── infra/
+│   └── terraform/                            🚧 production IaC (LocalStack covers local dev)
+│       ├── main.tf · s3.tf · kinesis.tf · firehose.tf
+│       ├── glue.tf · redshift.tf · iam.tf · variables.tf
+│
 ├── warehouse/
 │   ├── ddl/
-│   │   └── redshift_schema.sql               🚧 raw DDL with dist/sort keys
+│   │   └── redshift_schema.sql               ✅ raw DDL with dist/sort keys (Redshift target)
 │   └── dbt/
-│       ├── dbt_project.yml                    🚧
-│       ├── profiles.yml                       🚧
+│       ├── dbt_project.yml                    ✅
+│       ├── profiles.yml                       ✅ DuckDB local + Redshift target (documented)
 │       ├── models/
 │       │   ├── staging/
-│       │   │   ├── stg_sales.sql              🚧
-│       │   │   ├── stg_inventory_snapshot.sql 🚧
-│       │   │   ├── stg_stores.sql             🚧
-│       │   │   ├── stg_products.sql           🚧
-│       │   │   └── stg_shelf_life.sql         🚧
-│       │   ├── marts/
-│       │   │   ├── dim_store.sql              🚧
-│       │   │   ├── dim_product.sql            🚧
-│       │   │   ├── dim_shelf_life.sql         🚧 SCD Type 2
-│       │   │   ├── fact_sales.sql             🚧
-│       │   │   ├── fact_inventory_snapshot.sql 🚧
-│       │   │   └── perishables_risk.sql       🚧 ⭐ the gold deliverable
-│       │   └── schema.yml                     🚧 dbt tests (not-null, unique, ranges, relationships)
-│       └── macros/
-│           └── risk_scores.sql                🚧 reusable spoilage/stockout scoring logic
+│       │   │   ├── _sources.yml               ✅ parquet sources (→ Redshift raw in prod)
+│       │   │   ├── stg_sales.sql              ✅
+│       │   │   ├── stg_inventory_snapshot.sql ✅
+│       │   │   ├── stg_stores.sql             ✅
+│       │   │   ├── stg_products.sql           ✅
+│       │   │   ├── stg_suppliers.sql          ✅
+│       │   │   ├── stg_shelf_life.sql         ✅
+│       │   │   └── stg_date.sql               ✅
+│       │   ├── intermediate/
+│       │   │   └── int_inventory_sell_through.sql ✅ dense spine + trailing sell-through
+│       │   └── marts/
+│       │       ├── _marts.yml                 ✅ dbt tests (not-null, unique, relationships, values)
+│       │       ├── dim_store.sql              ✅
+│       │       ├── dim_product.sql            ✅
+│       │       ├── dim_supplier.sql           ✅
+│       │       ├── dim_shelf_life.sql         ✅ SCD Type 2
+│       │       ├── dim_date.sql               ✅
+│       │       ├── fact_sales.sql             ✅
+│       │       ├── fact_inventory_snapshot.sql ✅
+│       │       └── perishables_risk.sql       ✅ ⭐ the gold deliverable
+│       ├── macros/
+│       │   └── risk_scores.sql                ✅ reusable spoilage/stockout scoring logic
+│       └── tests/
+│           ├── assert_perishables_risk_scores_in_range.sql  ✅
+│           ├── assert_perishables_risk_unique_grain.sql     ✅
+│           └── assert_flag_matches_scores.sql               ✅
 │
 ├── quality/
 │   └── great_expectations/
@@ -149,7 +159,8 @@ perishables-intelligence-platform/
 │       └── app.py                             🚧 Streamlit over gold.perishables_risk
 │
 ├── tests/
-│   └── test_generator.py                      ✅ 11 data-quality invariants (all passing)
+│   ├── test_generator.py                      ✅ 11 data-quality invariants (all passing)
+│   └── test_streaming.py                      ✅ 14 tests: contract + moto end-to-end
 │
 └── .github/
     └── workflows/
@@ -160,9 +171,10 @@ perishables-intelligence-platform/
 
 ## Quickstart
 
-### Runs today — generate the dataset
+### Runs today — generate the dataset, then build the warehouse
 
-The generator has no AWS dependency. It runs anywhere Python does.
+The generator and the dbt warehouse both run locally with no AWS dependency —
+dbt targets DuckDB reading the generated Parquet directly.
 
 ```bash
 # 1. Install
@@ -175,8 +187,16 @@ python data/generators/seed.py
 #    …or size it yourself
 python data/generators/seed.py --stores 10 --skus 200 --days 30 --seed 42
 
-# 3. Run the data-quality invariants
+# 3. Run the generator's data-quality invariants
 pytest -v
+
+# 4. Build the warehouse: staging → marts → gold, plus all dbt tests
+cd warehouse/dbt
+export PERISHABLES_DATA_DIR=../../data/generated
+dbt build            # 8 view models, 8 table models, 19 tests
+
+# 5. Inspect the gold deliverable
+duckdb perishables.duckdb "select risk_flag, count(*) from perishables_risk group by 1"
 ```
 
 Output lands in `data/generated/` — dimensions as CSV **and** Parquet (easy to eyeball), facts as Parquet:
@@ -187,13 +207,32 @@ data/generated/
 └── facts/  fact_sales · fact_inventory_snapshot
 ```
 
-### Planned — the full local stack
+### Runs today — the streaming path
+
+The producer runs with zero AWS dependency in `stdout`/`file` mode, and the full
+Kinesis → Lambda → Firehose → S3 path runs locally on LocalStack.
 
 ```bash
-docker-compose up -d                          # LocalStack (Kinesis/S3/Lambda) + Airflow + warehouse
-python ingestion/stream/producer.py --rate 50 # stream synthetic events
-airflow dags trigger perishables_risk_scoring # build gold + quality gate
-streamlit run serving/dashboard/app.py        # open the deliverable
+# No AWS at all — watch validated events stream by:
+python ingestion/stream/producer.py --target stdout --rate 20 --count 100
+
+# Full local path on LocalStack:
+docker compose up -d                    # boots LocalStack + provisions stream/bucket/firehose/lambda
+AWS_ENDPOINT_URL=http://localhost:4566 \
+  python ingestion/stream/producer.py --target kinesis --rate 50 --duration 30
+# → the Lambda validates + enriches each record and Firehose lands it in
+#   s3://perishables-lake/bronze/stream/<event_type>/dt=YYYY-MM-DD/
+```
+
+The whole path is covered by `tests/test_streaming.py`, which stands up Kinesis,
+Firehose and S3 **in-process with moto** and asserts good records reach S3 while
+malformed ones are rejected — so `pytest` proves the streaming path without Docker.
+
+### Planned — orchestration & serving
+
+```bash
+airflow dags trigger perishables_risk_scoring   # build gold + quality gate
+streamlit run serving/dashboard/app.py          # open the deliverable
 ```
 
 ---
@@ -219,13 +258,29 @@ Business logic (`days_remaining_shelf_life`, the risk scores) is deliberately **
 **Representative signal** at the default scale (300K inventory rows):
 
 ```
-spoilage rate ............ ~8%   of units that reached the shelf
+spoilage rate ............ ~9%   of units that reached the shelf
                                  (concentrated in Seafood & Prepared Foods —
                                   ~2-day shelf life; Dairy at 15 days barely spoils)
-zero on-hand ............. ~18%  of snapshots  (driven by the under-orderer cohort)
+zero on-hand ............. ~17%  of snapshots  (driven by the under-orderer cohort)
 ```
 
 That category signature — most perishable categories spoil most — is asserted as a test, so the data can't silently drift into looking fake.
+
+### The gold deliverable
+
+`perishables_risk` — one row per store × SKU × day, carrying both continuous
+scores and a single acute **risk_flag**. A representative run flags roughly:
+
+```
+OK ......... 79%
+STOCKOUT ... 17%   empty shelf with live demand — losing sales now
+SPOILAGE ....4%   majority of on-hand stock projected to expire unsold
+```
+
+The two scores are gradients (`stockout_risk_score` is lead-time-relative
+reorder urgency; `spoilage_risk_score` is the fraction of on-hand unlikely to
+sell before expiry); the flag marks only the acute, act-today state — so a
+category manager gets a short prioritised list, not 50%-of-SKUs alert fatigue.
 
 ---
 
@@ -263,8 +318,8 @@ These graduate into the CI gate (`.github/workflows/ci.yml`): once dbt and Great
 ## Roadmap
 
 - [x] Synthetic data generator with FIFO aging + data-quality tests
-- [ ] Redshift DDL + dbt staging/marts, incl. the `perishables_risk` gold model
-- [ ] Kinesis → Lambda → Firehose streaming path (LocalStack for local dev)
+- [x] Redshift DDL + dbt staging/marts, incl. the `perishables_risk` gold model
+- [x] Kinesis → Lambda → Firehose streaming path (LocalStack + moto-tested)
 - [ ] Glue batch loaders + Airflow orchestration
 - [ ] Great Expectations gate wired into CI
 - [ ] Streamlit dashboard over the gold table

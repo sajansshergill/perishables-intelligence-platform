@@ -1,0 +1,1 @@
+-- Staging suppliers model placeholder.
