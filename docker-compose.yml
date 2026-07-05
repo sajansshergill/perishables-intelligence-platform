@@ -1,1 +1,20 @@
 
+# LocalStack provides Kinesis, Firehose, S3, Lambda and IAM locally so the
+# streaming path runs end-to-end on a laptop with no AWS account.
+#
+#   docker compose up -d
+#   # the init script below provisions the stream, bucket and firehose on boot
+#   AWS_ENDPOINT_URL=http://localhost:4566 \
+#     python ingestion/stream/producer.py --target kinesis --rate 50 --duration 30
+services:
+  localstack:
+    image: localstack/localstack:3
+    ports:
+      - "4566:4566"           # single edge endpoint for all services
+    environment:
+      - SERVICES=kinesis,firehose,s3,lambda,iam
+      - DEBUG=0
+    volumes:
+      # Scripts in ready.d run automatically once LocalStack is healthy.
+      - ./scripts/localstack_setup.sh:/etc/localstack/init/ready.d/setup.sh
+      - "/var/run/docker.sock:/var/run/docker.sock"
