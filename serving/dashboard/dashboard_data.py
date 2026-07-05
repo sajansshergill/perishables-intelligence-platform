@@ -1,9 +1,11 @@
 """Data access and business metrics for the Streamlit dashboard."""
 from __future__ import annotations
 
+import importlib.util
 import os
-import subprocess
 import sys
+import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -12,9 +14,8 @@ import pandas as pd
 
 
 ROOT = Path(__file__).resolve().parents[2]
-DBT_DIR = ROOT / "warehouse" / "dbt"
-DATA_DIR = ROOT / "data" / "generated"
-DEFAULT_DB = DBT_DIR / "perishables.duckdb"
+GENERATOR_DIR = ROOT / "data" / "generators"
+DEFAULT_DB = Path(tempfile.gettempdir()) / "perishables_demo.duckdb"
 RISK_COLUMNS = [
     "snapshot_date",
     "store_id",
@@ -39,47 +40,186 @@ RISK_COLUMNS = [
 
 
 def connect(path: str | os.PathLike[str] | None = None) -> duckdb.DuckDBPyConnection:
-    """Open the local DuckDB warehouse built by dbt."""
+    """Open the dashboard DuckDB database, bootstrapping demo data if needed."""
     db_path = Path(path or os.environ.get("PERISHABLES_DUCKDB", DEFAULT_DB))
     if not db_path.exists() and os.environ.get("PERISHABLES_BOOTSTRAP", "1") != "0":
         bootstrap_warehouse(db_path)
     if not db_path.exists():
         raise FileNotFoundError(
-            f"DuckDB warehouse not found at {db_path}. Run `python data/generators/seed.py` "
-            "and `dbt build --project-dir warehouse/dbt --profiles-dir warehouse/dbt`."
+            f"DuckDB warehouse not found at {db_path}. Enable PERISHABLES_BOOTSTRAP "
+            "or set PERISHABLES_DUCKDB to an existing database."
         )
     return duckdb.connect(str(db_path), read_only=True)
 
 
 def bootstrap_warehouse(db_path: Path) -> None:
-    """Build the demo DuckDB warehouse when Streamlit starts from a fresh clone."""
+    """Build a small demo warehouse without relying on committed artifacts."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    env = os.environ.copy()
-    env["PERISHABLES_DATA_DIR"] = str(DATA_DIR)
-    env["PERISHABLES_DUCKDB"] = str(db_path)
+    generate_all = _load_generate_all()
 
-    subprocess.run(
-        [
-            sys.executable,
-            str(ROOT / "data" / "generators" / "seed.py"),
-            "--stores",
-            os.environ.get("PERISHABLES_DEMO_STORES", "8"),
-            "--skus",
-            os.environ.get("PERISHABLES_DEMO_SKUS", "120"),
-            "--days",
-            os.environ.get("PERISHABLES_DEMO_DAYS", "21"),
-            "--seed",
-            os.environ.get("PERISHABLES_DEMO_SEED", "42"),
-        ],
-        cwd=ROOT,
-        env=env,
-        check=True,
+    start_date = datetime.strptime(
+        os.environ.get("PERISHABLES_DEMO_START_DATE", "2026-07-01"),
+        "%Y-%m-%d",
+    ).date()
+    tables = generate_all(
+        n_stores=int(os.environ.get("PERISHABLES_DEMO_STORES", "8")),
+        n_skus=int(os.environ.get("PERISHABLES_DEMO_SKUS", "120")),
+        days=int(os.environ.get("PERISHABLES_DEMO_DAYS", "21")),
+        n_suppliers=int(os.environ.get("PERISHABLES_DEMO_SUPPLIERS", "15")),
+        start_date=start_date,
+        seed=int(os.environ.get("PERISHABLES_DEMO_SEED", "42")),
     )
-    subprocess.run(
-        ["dbt", "build", "--project-dir", str(DBT_DIR), "--profiles-dir", str(DBT_DIR)],
-        cwd=DBT_DIR,
-        env=env,
-        check=True,
+
+    con = duckdb.connect(str(db_path))
+    try:
+        _load_generated_tables(con, tables)
+        _build_dashboard_tables(con)
+    finally:
+        con.close()
+
+
+def _load_generate_all():
+    """Load the generator module from its script location."""
+    if str(GENERATOR_DIR) not in sys.path:
+        sys.path.insert(0, str(GENERATOR_DIR))
+
+    spec = importlib.util.spec_from_file_location(
+        "perishables_generate", GENERATOR_DIR / "generate.py"
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError("Could not load data generator")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.generate_all
+
+
+def _load_generated_tables(
+    con: duckdb.DuckDBPyConnection, tables: dict[str, pd.DataFrame]
+) -> None:
+    for name, df in tables.items():
+        con.register(f"{name}_df", df)
+        con.execute(f"create or replace table {name} as select * from {name}_df")
+        con.unregister(f"{name}_df")
+
+
+def _build_dashboard_tables(con: duckdb.DuckDBPyConnection) -> None:
+    window_days = int(os.environ.get("PERISHABLES_SELL_THROUGH_WINDOW_DAYS", "7"))
+    threshold = float(os.environ.get("PERISHABLES_SPOILAGE_FLAG_THRESHOLD", "0.70"))
+
+    con.execute(
+        """
+        alter table dim_product rename to raw_dim_product
+        """
+    )
+    con.execute(
+        """
+        create or replace table dim_product as
+        select
+            p.product_id,
+            p.product_name,
+            p.category,
+            p.supplier_id,
+            s.supplier_name,
+            p.unit_price,
+            p.unit_cost,
+            round(p.unit_price - p.unit_cost, 2) as unit_margin,
+            p.popularity
+        from raw_dim_product p
+        left join dim_supplier s using (supplier_id)
+        """
+    )
+    con.execute(
+        f"""
+        create or replace table int_inventory_sell_through as
+        with dense as (
+            select
+                inv.store_id,
+                inv.product_id,
+                cast(inv.snapshot_date as date) as snapshot_date,
+                inv.on_hand_qty,
+                inv.received_qty,
+                inv.oldest_batch_age_days,
+                inv.spoiled_qty,
+                inv.unmet_demand,
+                coalesce(s.units_sold, 0) as units_sold
+            from fact_inventory_snapshot inv
+            left join fact_sales s
+                on inv.store_id = s.store_id
+               and inv.product_id = s.product_id
+               and cast(inv.snapshot_date as date) = cast(s.sale_date as date)
+        )
+        select
+            *,
+            avg(units_sold) over (
+                partition by store_id, product_id
+                order by snapshot_date
+                rows between {window_days - 1} preceding and current row
+            ) as trailing_avg_daily_sell_through
+        from dense
+        """
+    )
+    con.execute(
+        f"""
+        create or replace table perishables_risk as
+        with enriched as (
+            select
+                v.store_id,
+                v.product_id,
+                v.snapshot_date,
+                v.on_hand_qty,
+                v.oldest_batch_age_days,
+                v.trailing_avg_daily_sell_through as sell_through,
+                sl.shelf_life_days,
+                sup.lead_time_days,
+                greatest(sl.shelf_life_days - v.oldest_batch_age_days, 0)
+                    as days_remaining_shelf_life
+            from int_inventory_sell_through v
+            join dim_product p on v.product_id = p.product_id
+            join dim_supplier sup on p.supplier_id = sup.supplier_id
+            join dim_shelf_life sl on v.product_id = sl.product_id and sl.is_current
+        ),
+        scored as (
+            select
+                *,
+                case
+                    when on_hand_qty <= 0 then 0.0
+                    else least(1.0, greatest(0.0,
+                        (on_hand_qty - coalesce(sell_through, 0)
+                            * greatest(days_remaining_shelf_life, 0))
+                        / nullif(on_hand_qty, 0)
+                    ))
+                end as spoilage_risk_score,
+                case
+                    when coalesce(sell_through, 0) <= 0 then 0.0
+                    when lead_time_days <= 0 then 0.0
+                    else least(1.0, greatest(0.0,
+                        (lead_time_days - (on_hand_qty / nullif(sell_through, 0)))
+                        / lead_time_days
+                    ))
+                end as stockout_risk_score
+            from enriched
+        )
+        select
+            store_id,
+            product_id,
+            snapshot_date,
+            on_hand_qty,
+            days_remaining_shelf_life,
+            round(sell_through, 2) as trailing_7d_sell_through,
+            round(sell_through * days_remaining_shelf_life, 1)
+                as projected_demand_before_expiry,
+            lead_time_days as replenishment_lead_days,
+            round(spoilage_risk_score, 3) as spoilage_risk_score,
+            round(stockout_risk_score, 3) as stockout_risk_score,
+            case
+                when on_hand_qty = 0 and sell_through > 0 then 'STOCKOUT'
+                when round(spoilage_risk_score, 3) >= {threshold} then 'SPOILAGE'
+                else 'OK'
+            end as risk_flag,
+            current_timestamp as computed_at
+        from scored
+        """
     )
 
 
