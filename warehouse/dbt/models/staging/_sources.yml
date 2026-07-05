@@ -1,3 +1,26 @@
 version: 2
 
-sources: []
+sources:
+  - name: perishables_raw
+    tables:
+      - name: dim_store
+        meta:
+          external_location: "{{ env_var('PERISHABLES_DATA_DIR', '../../data/generated') }}/dims/dim_store.parquet"
+      - name: dim_product
+        meta:
+          external_location: "{{ env_var('PERISHABLES_DATA_DIR', '../../data/generated') }}/dims/dim_product.parquet"
+      - name: dim_supplier
+        meta:
+          external_location: "{{ env_var('PERISHABLES_DATA_DIR', '../../data/generated') }}/dims/dim_supplier.parquet"
+      - name: dim_shelf_life
+        meta:
+          external_location: "{{ env_var('PERISHABLES_DATA_DIR', '../../data/generated') }}/dims/dim_shelf_life.parquet"
+      - name: dim_date
+        meta:
+          external_location: "{{ env_var('PERISHABLES_DATA_DIR', '../../data/generated') }}/dims/dim_date.parquet"
+      - name: fact_sales
+        meta:
+          external_location: "{{ env_var('PERISHABLES_DATA_DIR', '../../data/generated') }}/facts/fact_sales.parquet"
+      - name: fact_inventory_snapshot
+        meta:
+          external_location: "{{ env_var('PERISHABLES_DATA_DIR', '../../data/generated') }}/facts/fact_inventory_snapshot.parquet"

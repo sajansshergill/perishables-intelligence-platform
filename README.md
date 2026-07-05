@@ -156,11 +156,13 @@ perishables-intelligence-platform/
 │
 ├── serving/
 │   └── dashboard/
-│       └── app.py                             🚧 Streamlit over gold.perishables_risk
+│       ├── dashboard_data.py                  ✅ query + money-at-risk layer (unit-tested)
+│       └── app.py                             ✅ Streamlit UI over gold.perishables_risk
 │
 ├── tests/
 │   ├── test_generator.py                      ✅ 11 data-quality invariants (all passing)
-│   └── test_streaming.py                      ✅ 14 tests: contract + moto end-to-end
+│   ├── test_streaming.py                      ✅ 14 tests: contract + moto end-to-end
+│   └── test_dashboard.py                      ✅ 6 tests: enrichment SQL + money-at-risk maths
 │
 └── .github/
     └── workflows/
@@ -228,11 +230,25 @@ The whole path is covered by `tests/test_streaming.py`, which stands up Kinesis,
 Firehose and S3 **in-process with moto** and asserts good records reach S3 while
 malformed ones are rejected — so `pytest` proves the streaming path without Docker.
 
-### Planned — orchestration & serving
+### Runs today — the dashboard
+
+Point the dashboard at the warehouse DuckDB and open it:
 
 ```bash
-airflow dags trigger perishables_risk_scoring   # build gold + quality gate
-streamlit run serving/dashboard/app.py          # open the deliverable
+export PERISHABLES_DUCKDB=warehouse/dbt/perishables.duckdb
+streamlit run serving/dashboard/app.py
+```
+
+It shows, for a chosen day, the money leaking out of perishables — stockouts
+ranked by daily revenue lost, spoilage ranked by write-off cost — sliceable by
+region and category. On the default dataset a representative day surfaces ~211
+stockouts (~$21K/day of lost sales) and ~76 spoilage risks (~$17K of pending
+write-offs).
+
+### Planned — orchestration
+
+```bash
+airflow dags trigger perishables_risk_scoring   # build gold + quality gate on a schedule
 ```
 
 ---
@@ -320,9 +336,9 @@ These graduate into the CI gate (`.github/workflows/ci.yml`): once dbt and Great
 - [x] Synthetic data generator with FIFO aging + data-quality tests
 - [x] Redshift DDL + dbt staging/marts, incl. the `perishables_risk` gold model
 - [x] Kinesis → Lambda → Firehose streaming path (LocalStack + moto-tested)
+- [x] Streamlit dashboard over the gold table (money-at-risk deliverable)
 - [ ] Glue batch loaders + Airflow orchestration
 - [ ] Great Expectations gate wired into CI
-- [ ] Streamlit dashboard over the gold table
 - [ ] Swap heuristic risk scores for a lightweight demand-forecast layer
 
 ---

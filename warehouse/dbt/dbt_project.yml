@@ -1,1 +1,22 @@
-# dbt project placeholder.
+name: perishables_intelligence
+version: "1.0.0"
+config-version: 2
+
+profile: perishables_intelligence
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+
+vars:
+  sell_through_window_days: 7
+  spoilage_flag_threshold: 0.70
+
+models:
+  perishables_intelligence:
+    staging:
+      +materialized: view
+    intermediate:
+      +materialized: view
+    marts:
+      +materialized: table

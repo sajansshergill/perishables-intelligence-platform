@@ -1,1 +1,43 @@
-# dbt tests placeholder.
+version: 2
+
+models:
+  - name: stg_stores
+    columns:
+      - name: store_id
+        tests: [not_null, unique]
+  - name: stg_products
+    columns:
+      - name: product_id
+        tests: [not_null, unique]
+      - name: supplier_id
+        tests: [not_null]
+  - name: stg_suppliers
+    columns:
+      - name: supplier_id
+        tests: [not_null, unique]
+  - name: stg_shelf_life
+    columns:
+      - name: product_id
+        tests: [not_null]
+      - name: shelf_life_days
+        tests: [not_null]
+  - name: stg_date
+    columns:
+      - name: date_day
+        tests: [not_null, unique]
+  - name: stg_sales
+    columns:
+      - name: store_id
+        tests: [not_null]
+      - name: product_id
+        tests: [not_null]
+      - name: sale_date
+        tests: [not_null]
+  - name: stg_inventory_snapshot
+    columns:
+      - name: store_id
+        tests: [not_null]
+      - name: product_id
+        tests: [not_null]
+      - name: snapshot_date
+        tests: [not_null]

@@ -1,1 +1,49 @@
-{}
+{
+  "expectation_suite_name": "perishables_risk_suite",
+  "ge_cloud_id": null,
+  "meta": {
+    "notes": "Quality checks for the gold risk deliverable."
+  },
+  "expectations": [
+    {
+      "expectation_type": "expect_compound_columns_to_be_unique",
+      "kwargs": {
+        "column_list": ["store_id", "product_id", "snapshot_date"]
+      },
+      "meta": {}
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "spoilage_risk_score",
+        "min_value": 0,
+        "max_value": 1
+      },
+      "meta": {}
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_between",
+      "kwargs": {
+        "column": "stockout_risk_score",
+        "min_value": 0,
+        "max_value": 1
+      },
+      "meta": {}
+    },
+    {
+      "expectation_type": "expect_column_values_to_be_in_set",
+      "kwargs": {
+        "column": "risk_flag",
+        "value_set": ["OK", "STOCKOUT", "SPOILAGE"]
+      },
+      "meta": {}
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "computed_at"
+      },
+      "meta": {}
+    }
+  ]
+}

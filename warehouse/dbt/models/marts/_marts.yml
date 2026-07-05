@@ -1,3 +1,120 @@
 version: 2
 
-models: []
+models:
+  - name: dim_store
+    columns:
+      - name: store_id
+        tests:
+          - not_null
+          - unique
+      - name: region
+        tests:
+          - not_null
+
+  - name: dim_product
+    columns:
+      - name: product_id
+        tests:
+          - not_null
+          - unique
+      - name: supplier_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_supplier')
+                field: supplier_id
+      - name: category
+        tests:
+          - not_null
+
+  - name: dim_supplier
+    columns:
+      - name: supplier_id
+        tests:
+          - not_null
+          - unique
+      - name: lead_time_days
+        tests:
+          - not_null
+
+  - name: dim_shelf_life
+    columns:
+      - name: product_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_product')
+                field: product_id
+      - name: shelf_life_days
+        tests:
+          - not_null
+
+  - name: dim_date
+    columns:
+      - name: date_day
+        tests:
+          - not_null
+          - unique
+
+  - name: fact_sales
+    columns:
+      - name: store_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_store')
+                field: store_id
+      - name: product_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_product')
+                field: product_id
+
+  - name: fact_inventory_snapshot
+    columns:
+      - name: store_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_store')
+                field: store_id
+      - name: product_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_product')
+                field: product_id
+
+  - name: perishables_risk
+    columns:
+      - name: store_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_store')
+                field: store_id
+      - name: product_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_product')
+                field: product_id
+      - name: snapshot_date
+        tests:
+          - not_null
+      - name: risk_flag
+        tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['OK', 'STOCKOUT', 'SPOILAGE']
+      - name: spoilage_risk_score
+        tests:
+          - not_null
+      - name: stockout_risk_score
+        tests:
+          - not_null

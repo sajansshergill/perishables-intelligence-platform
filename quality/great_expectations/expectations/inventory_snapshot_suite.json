@@ -1,1 +1,64 @@
-{}
+{
+  "expectation_suite_name": "inventory_snapshot_suite",
+  "ge_cloud_id": null,
+  "meta": {
+    "notes": "Quality checks for dense daily inventory snapshots."
+  },
+  "expectations": [
+    {
+      "expectation_type": "expect_table_columns_to_match_set",
+      "kwargs": {
+        "column_set": [
+          "store_id",
+          "product_id",
+          "snapshot_date",
+          "on_hand_qty",
+          "received_qty",
+          "oldest_batch_age_days",
+          "spoiled_qty",
+          "unmet_demand"
+        ],
+        "exact_match": false
+      },
+      "meta": {}
+    },
+    {
+      "expectation_type": "expect_compound_columns_to_be_unique",
+      "kwargs": {
+        "column_list": ["store_id", "product_id", "snapshot_date"]
+      },
+      "meta": {}
+    },
+    {
+      "expectation_type": "expect_column_values_to_not_be_null",
+      "kwargs": {
+        "column": "snapshot_date"
+      },
+      "meta": {}
+    },
+    {
+      "expectation_type": "expect_column_min_to_be_between",
+      "kwargs": {
+        "column": "on_hand_qty",
+        "min_value": 0
+      },
+      "meta": {}
+    },
+    {
+      "expectation_type": "expect_column_min_to_be_between",
+      "kwargs": {
+        "column": "received_qty",
+        "min_value": 0
+      },
+      "meta": {}
+    },
+    {
+      "expectation_type": "expect_column_min_to_be_between",
+      "kwargs": {
+        "column": "spoiled_qty",
+        "min_value": 0
+      },
+      "meta": {}
+    }
+  ]
+}

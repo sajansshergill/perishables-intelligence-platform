@@ -1,1 +1,18 @@
-# dbt profile placeholder.
+perishables_intelligence:
+  target: duckdb
+  outputs:
+    duckdb:
+      type: duckdb
+      path: perishables.duckdb
+      threads: 4
+      settings:
+        preserve_insertion_order: false
+    redshift:
+      type: redshift
+      host: "{{ env_var('REDSHIFT_HOST') }}"
+      user: "{{ env_var('REDSHIFT_USER') }}"
+      password: "{{ env_var('REDSHIFT_PASSWORD') }}"
+      port: "{{ env_var('REDSHIFT_PORT', 5439) | int }}"
+      dbname: "{{ env_var('REDSHIFT_DB', 'dev') }}"
+      schema: analytics
+      threads: 4

@@ -3,5 +3,17 @@ numpy>=1.26
 pandas>=2.1
 pyarrow>=14.0
 
+# Local warehouse + dashboard
+duckdb>=1.0
+dbt-core>=1.8
+dbt-duckdb>=1.8
+streamlit>=1.36
+
+# AWS/local integration paths
+boto3>=1.34
+moto[kinesis,firehose,s3]>=5.0
+pyspark>=3.5
+
 # Tests / data-quality gate
 pytest>=7.4
+great_expectations>=0.18
