@@ -3,7 +3,7 @@ perishables_intelligence:
   outputs:
     duckdb:
       type: duckdb
-      path: perishables.duckdb
+      path: "{{ env_var('PERISHABLES_DUCKDB', 'perishables.duckdb') }}"
       threads: 4
       settings:
         preserve_insertion_order: false

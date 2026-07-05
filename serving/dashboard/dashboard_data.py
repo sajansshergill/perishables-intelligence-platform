@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +11,10 @@ import duckdb
 import pandas as pd
 
 
-DEFAULT_DB = Path(__file__).resolve().parents[2] / "warehouse" / "dbt" / "perishables.duckdb"
+ROOT = Path(__file__).resolve().parents[2]
+DBT_DIR = ROOT / "warehouse" / "dbt"
+DATA_DIR = ROOT / "data" / "generated"
+DEFAULT_DB = DBT_DIR / "perishables.duckdb"
 RISK_COLUMNS = [
     "snapshot_date",
     "store_id",
@@ -36,7 +41,46 @@ RISK_COLUMNS = [
 def connect(path: str | os.PathLike[str] | None = None) -> duckdb.DuckDBPyConnection:
     """Open the local DuckDB warehouse built by dbt."""
     db_path = Path(path or os.environ.get("PERISHABLES_DUCKDB", DEFAULT_DB))
+    if not db_path.exists() and os.environ.get("PERISHABLES_BOOTSTRAP", "1") != "0":
+        bootstrap_warehouse(db_path)
+    if not db_path.exists():
+        raise FileNotFoundError(
+            f"DuckDB warehouse not found at {db_path}. Run `python data/generators/seed.py` "
+            "and `dbt build --project-dir warehouse/dbt --profiles-dir warehouse/dbt`."
+        )
     return duckdb.connect(str(db_path), read_only=True)
+
+
+def bootstrap_warehouse(db_path: Path) -> None:
+    """Build the demo DuckDB warehouse when Streamlit starts from a fresh clone."""
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env["PERISHABLES_DATA_DIR"] = str(DATA_DIR)
+    env["PERISHABLES_DUCKDB"] = str(db_path)
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "data" / "generators" / "seed.py"),
+            "--stores",
+            os.environ.get("PERISHABLES_DEMO_STORES", "8"),
+            "--skus",
+            os.environ.get("PERISHABLES_DEMO_SKUS", "120"),
+            "--days",
+            os.environ.get("PERISHABLES_DEMO_DAYS", "21"),
+            "--seed",
+            os.environ.get("PERISHABLES_DEMO_SEED", "42"),
+        ],
+        cwd=ROOT,
+        env=env,
+        check=True,
+    )
+    subprocess.run(
+        ["dbt", "build", "--project-dir", str(DBT_DIR), "--profiles-dir", str(DBT_DIR)],
+        cwd=DBT_DIR,
+        env=env,
+        check=True,
+    )
 
 
 def available_dates(con: duckdb.DuckDBPyConnection) -> list[str]:
