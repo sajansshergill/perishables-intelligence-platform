@@ -4,6 +4,8 @@
 
 Built to mirror the data-engineering problem at the heart of large-scale grocery operations: replacing opaque third-party inventory intelligence with a warehouse-owned, cost-effective system that gives category managers a single source of truth for perishables.
 
+# App Link - https://lnkd.in/errkSHk7
+
 <p align="left">
   <img alt="Python" src="https://img.shields.io/badge/Python-3.11-blue" />
   <img alt="AWS" src="https://img.shields.io/badge/AWS-Kinesis｜Glue｜Redshift｜S3｜Lambda-orange" />
